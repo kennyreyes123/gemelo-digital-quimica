@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.1",
+  "batch_id": "LOTE-20260918-021641",
+  "process": "pasteurizacion",
+  "process_label": "Pasteurización HTST de leche entera",
+  "seq": 4,
+  "timestamp_utc": "2026-09-18T02:16:44.932+00:00",
+  "t_process_s": 240.0,
+  "readings": {
+    "temperature_C": 68.43712,
+    "pH": 6.72327,
+    "pressure_kPa": 152.79846,
+    "concentration_A": 0.13914,
+    "concentration_B": 0.00054
+  },
+  "truth": {
+    "temperature_C": 68.37213,
+    "pH": 6.69923,
+    "pressure_kPa": 152.04403,
+    "concentration_A": 0.13945,
+    "concentration_B": 0.00054
+  },
+  "state": {
+    "concentration_A": 0.139448,
+    "concentration_B": 0.000543,
+    "concentration_HA": 3.9e-05,
+    "temperature_K": 341.522,
+    "microbial_count": 455400.0,
+    "lethality_F_s": 5.593
+  },
+  "metrics": {
+    "k_rate_s": 6.9053e-05,
+    "conversion": 0.0039,
+    "log_reduction": 0.342,
+    "lethality_progress": 0.3729,
+    "half_life_s": 10038.0
+  },
+  "control": {
+    "setpoint_C": 72.0,
+    "jacket_C": 95.0,
+    "speed_factor": 60.0,
+    "running": true
+  },
+  "phase": "CALENTAMIENTO",
+  "ccp_armed": false,
+  "status": "CALENTAMIENTO",
+  "alerts": []
+}

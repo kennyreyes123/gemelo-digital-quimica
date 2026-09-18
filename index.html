@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gemelo Digital · Sala de control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+/* ---------------------------------------------------------------------------
+   Lenguaje visual: norma ISA-101 de interfaces de operador.
+   El fondo es gris desaturado y los trazos son casi neutros. El color
+   saturado queda RESERVADO para las alarmas, de modo que un rojo en pantalla
+   siempre significa algo. Es lo contrario a un dashboard decorativo.
+--------------------------------------------------------------------------- */
+:root{
+  --panel:#b7bbb4;
+  --panel-dark:#9ca19a;
+  --surface:#e7e8e3;
+  --surface-2:#dcded8;
+  --ink:#1f2326;
+  --ink-soft:#5a615f;
+  --rule:#878d85;
+  --trace-1:#2b3134;   /* temperatura */
+  --trace-2:#1f5f63;   /* concentracion A */
+  --trace-3:#7a5a12;   /* concentracion B */
+  --trace-4:#5f3a5e;   /* pH */
+  --alarm:#b3241c;
+  --warn:#c98f00;
+  --safe:#2c6b4a;
+  --radius:2px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:var(--panel);
+  color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,sans-serif;
+  font-size:14px;
+  line-height:1.45;
+}
+.tabular{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+
+/* --- Encabezado ---------------------------------------------------------- */
+header{
+  display:flex;flex-wrap:wrap;gap:16px;align-items:baseline;
+  padding:14px 20px;border-bottom:2px solid var(--rule);background:var(--surface-2);
+}
+header h1{margin:0;font-size:17px;font-weight:600;letter-spacing:-.01em}
+header .meta{color:var(--ink-soft);font-size:12.5px}
+#link-state{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12.5px}
+#link-dot{width:9px;height:9px;border-radius:50%;background:var(--ink-soft)}
+#link-dot.on{background:var(--safe)}
+#link-dot.off{background:var(--alarm)}
+
+/* --- Banda de alarmas ---------------------------------------------------- */
+#alarm-bar{padding:0 20px}
+.alarm{
+  display:flex;gap:12px;align-items:flex-start;
+  padding:9px 12px;margin-top:8px;border-left:5px solid var(--rule);
+  background:var(--surface);border-radius:var(--radius);
+}
+.alarm.CRITICAL{border-left-color:var(--alarm);background:#f3dedc}
+.alarm.WARNING{border-left-color:var(--warn);background:#f5ebd2}
+.alarm .tag{font-weight:600;white-space:nowrap}
+.alarm .fix{color:var(--ink-soft);font-size:12.5px;display:block;margin-top:2px}
+#alarm-bar.quiet .none{
+  margin-top:8px;padding:9px 12px;background:var(--surface);
+  border-left:5px solid var(--safe);border-radius:var(--radius);color:var(--ink-soft);
+}
+
+/* --- Rejilla principal --------------------------------------------------- */
+main{display:grid;grid-template-columns:270px 1fr;gap:16px;padding:16px 20px 28px}
+@media (max-width:900px){main{grid-template-columns:1fr}}
+
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:var(--radius)}
+.card h2{
+  margin:0;padding:9px 12px;font-size:12.5px;font-weight:600;
+  border-bottom:1px solid var(--rule);background:var(--surface-2);
+}
+.card .body{padding:12px}
+
+/* --- Controles ----------------------------------------------------------- */
+.ctrl{margin-bottom:18px}
+.ctrl label{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px}
+.ctrl label span:last-child{font-family:"IBM Plex Mono",monospace;font-weight:500}
+input[type=range]{width:100%;accent-color:var(--trace-1)}
+.hint{color:var(--ink-soft);font-size:11.5px;margin-top:3px}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap}
+button{
+  font:inherit;font-size:13px;padding:7px 12px;cursor:pointer;
+  background:var(--surface-2);border:1px solid var(--rule);border-radius:var(--radius);
+  color:var(--ink);
+}
+button:hover{background:#cfd1cb}
+button:focus-visible{outline:2px solid var(--trace-2);outline-offset:2px}
+select{font:inherit;font-size:13px;padding:6px;width:100%;background:var(--surface-2);
+  border:1px solid var(--rule);border-radius:var(--radius);color:var(--ink)}
+
+/* --- Lecturas numéricas -------------------------------------------------- */
+#readouts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.readout{background:var(--surface);border:1px solid var(--rule);padding:10px 12px;border-radius:var(--radius)}
+.readout .name{font-size:11.5px;color:var(--ink-soft)}
+.readout .value{font-family:"IBM Plex Mono",monospace;font-size:26px;font-weight:500;letter-spacing:-.02em}
+.readout .unit{font-size:13px;color:var(--ink-soft);margin-left:3px}
+.readout .band{font-size:11.5px;color:var(--ink-soft);margin-top:2px}
+.readout.CRITICAL{border-color:var(--alarm);border-width:2px}
+.readout.CRITICAL .value{color:var(--alarm)}
+.readout.WARNING{border-color:var(--warn);border-width:2px}
+.readout.WARNING .value{color:var(--warn)}
+
+/* --- Gráficas ------------------------------------------------------------ */
+#charts{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:1150px){#charts{grid-template-columns:1fr}}
+.chart-box{height:230px;padding:8px 10px 10px}
+
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+td{padding:4px 0;border-bottom:1px solid var(--surface-2)}
+td:last-child{text-align:right;font-family:"IBM Plex Mono",monospace}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Gemelo digital de proceso</h1>
+  <span class="meta" id="process-label">Cargando perfil…</span>
+  <span class="meta tabular" id="batch-id"></span>
+  <div id="link-state"><span id="link-dot"></span><span id="link-text">Conectando</span></div>
+</header>
+
+<div id="alarm-bar" class="quiet"><div class="none">Todas las variables dentro de límites.</div></div>
+
+<main>
+  <!-- ------------------------- Columna de control ------------------------ -->
+  <section>
+    <div class="card">
+      <h2>Consigna de operación</h2>
+      <div class="body">
+        <div class="ctrl">
+          <label for="sp-temp"><span>Temperatura objetivo</span><span id="sp-temp-val">72.0 °C</span></label>
+          <input type="range" id="sp-temp" min="4" max="95" step="0.5" value="72">
+          <p class="hint">Mueve el equilibrio de Arrhenius: cada +10 °C multiplica k.</p>
+        </div>
+        <div class="ctrl">
+          <label for="sp-ph"><span>pH inicial del medio</span><span id="sp-ph-val">6.70</span></label>
+          <input type="range" id="sp-ph" min="3" max="9" step="0.05" value="6.7">
+        </div>
+        <div class="ctrl">
+          <label for="sp-ca"><span>Concentración inicial [A]</span><span id="sp-ca-val">0.140 mol/L</span></label>
+          <input type="range" id="sp-ca" min="0" max="0.5" step="0.005" value="0.14">
+        </div>
+        <div class="ctrl">
+          <label for="sp-speed"><span>Aceleración del tiempo</span><span id="sp-speed-val">60×</span></label>
+          <input type="range" id="sp-speed" min="1" max="300" step="1" value="60">
+          <p class="hint">1 segundo real equivale a este número de segundos de proceso.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2>Lote</h2>
+      <div class="body">
+        <div class="ctrl">
+          <label for="proc"><span>Proceso simulado</span></label>
+          <select id="proc"></select>
+        </div>
+        <div class="btn-row">
+          <button id="btn-start">Iniciar</button>
+          <button id="btn-stop">Pausar</button>
+          <button id="btn-reset">Nuevo lote</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2>Indicadores del modelo</h2>
+      <div class="body">
+        <table>
+          <tr><td>Constante k(T)</td><td id="m-k">—</td></tr>
+          <tr><td>Conversión de A</td><td id="m-conv">—</td></tr>
+          <tr><td>Vida media t½</td><td id="m-half">—</td></tr>
+          <tr><td>Reducción logarítmica</td><td id="m-log">—</td></tr>
+          <tr><td>Letalidad F acumulada</td><td id="m-f">—</td></tr>
+          <tr><td>Temperatura de camisa</td><td id="m-jacket">—</td></tr>
+          <tr><td>Tiempo de proceso</td><td id="m-time">—</td></tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------- Área de gráficas -------------------------- -->
+  <section>
+    <div id="readouts"></div>
+    <div id="charts">
+      <div class="card"><h2>Concentración vs tiempo</h2><div class="chart-box"><canvas id="ch-conc"></canvas></div></div>
+      <div class="card"><h2>Temperatura vs tiempo</h2><div class="chart-box"><canvas id="ch-temp"></canvas></div></div>
+      <div class="card"><h2>pH vs tiempo</h2><div class="chart-box"><canvas id="ch-ph"></canvas></div></div>
+      <div class="card"><h2>Presión vs tiempo</h2><div class="chart-box"><canvas id="ch-press"></canvas></div></div>
+    </div>
+  </section>
+</main>
+
+<script>
+/* ===========================================================================
+   Dashboard del gemelo digital
+   - Recibe tramas JSON por WebSocket (1 Hz).
+   - Dibuja 4 gráficas con Chart.js sobre un buffer circular de 240 muestras.
+   - Envía cambios de consigna por POST /api/setpoints (con anti-rebote).
+=========================================================================== */
+
+const API = location.origin.startsWith("http") ? location.origin : "http://localhost:8000";
+const WS_URL = API.replace(/^http/, "ws") + "/ws/telemetry";
+const MAX_POINTS = 240;
+const CSS = getComputedStyle(document.documentElement);
+const color = n => CSS.getPropertyValue(n).trim();
+
+let limits = {};   // límites PCC recibidos de /api/profile
+
+/* ---------------------------- Gráficas ---------------------------------- */
+
+function makeChart(canvasId, series, yTitle, opts = {}) {
+  return new Chart(document.getElementById(canvasId), {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: series.map(s => ({
+        label: s.label,
+        data: [],
+        borderColor: s.color,
+        backgroundColor: s.color,
+        borderWidth: 1.6,
+        pointRadius: 0,
+        tension: 0.25,
+        yAxisID: s.axis || "y",
+        borderDash: s.dash || []
+      }))
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: series.length > 1, labels: { boxWidth: 10, font: { size: 11 } } },
+        tooltip: { displayColors: false }
+      },
+      scales: Object.assign({
+        x: {
+          title: { display: true, text: "tiempo de proceso (s)", font: { size: 11 } },
+          ticks: { maxTicksLimit: 7, font: { size: 10 } },
+          grid: { color: "rgba(0,0,0,.07)" }
+        },
+        y: {
+          title: { display: true, text: yTitle, font: { size: 11 } },
+          ticks: { font: { size: 10 } },
+          grid: { color: "rgba(0,0,0,.07)" },
+          ...(opts.y || {})
+        }
+      }, opts.extraScales || {})
+    }
+  });
+}
+
+const charts = {
+  conc: makeChart("ch-conc", [
+    { label: "[A] reactivo", color: color("--trace-2") },
+    { label: "[B] producto", color: color("--trace-3") }
+  ], "mol/L"),
+  temp: makeChart("ch-temp", [
+    { label: "T producto", color: color("--trace-1") },
+    { label: "T camisa", color: color("--trace-3"), dash: [5, 4] }
+  ], "°C"),
+  ph: makeChart("ch-ph", [{ label: "pH", color: color("--trace-4") }], "pH"),
+  press: makeChart("ch-press", [{ label: "Presión", color: color("--trace-1") }], "kPa")
+};
+
+function pushPoint(chart, label, values) {
+  chart.data.labels.push(label);
+  values.forEach((v, i) => chart.data.datasets[i].data.push(v));
+  if (chart.data.labels.length > MAX_POINTS) {
+    chart.data.labels.shift();
+    chart.data.datasets.forEach(d => d.data.shift());
+  }
+}
+
+function clearCharts() {
+  Object.values(charts).forEach(c => {
+    c.data.labels = [];
+    c.data.datasets.forEach(d => (d.data = []));
+    c.update("none");
+  });
+}
+
+/* ---------------------------- Render ------------------------------------ */
+
+const READOUTS = [
+  { key: "temperature_C", name: "Temperatura", unit: "°C", digits: 2 },
+  { key: "pH", name: "pH", unit: "", digits: 3 },
+  { key: "pressure_kPa", name: "Presión", unit: "kPa", digits: 1 },
+  { key: "concentration_A", name: "[A] reactivo", unit: "mol/L", digits: 4 }
+];
+
+function levelFor(key, value) {
+  const L = limits[key];
+  if (!L) return "";
+  if (value < L.crit_low || value > L.crit_high) return "CRITICAL";
+  if (value < L.warn_low || value > L.warn_high) return "WARNING";
+  return "";
+}
+
+function renderReadouts(frame) {
+  const box = document.getElementById("readouts");
+  box.innerHTML = READOUTS.map(r => {
+    const v = frame.readings[r.key];
+    if (v === undefined) return "";
+    const L = limits[r.key];
+    const band = L ? `banda ${L.warn_low}–${L.warn_high} ${L.unit === "-" ? "" : L.unit}` : "";
+    return `<div class="readout ${levelFor(r.key, v)}">
+      <div class="name">${r.name}</div>
+      <div class="value">${v.toFixed(r.digits)}<span class="unit">${r.unit}</span></div>
+      <div class="band">${band}</div>
+    </div>`;
+  }).join("");
+}
+
+function renderAlarms(frame) {
+  const bar = document.getElementById("alarm-bar");
+  if (!frame.alerts || frame.alerts.length === 0) {
+    bar.className = "quiet";
+    bar.innerHTML = '<div class="none">Todas las variables dentro de límites.</div>';
+    return;
+  }
+  bar.className = "";
+  bar.innerHTML = frame.alerts.map(a => `
+    <div class="alarm ${a.level}">
+      <span class="tag">${a.ccp_id}</span>
+      <span>${a.message}<span class="fix">${a.corrective_action}</span></span>
+    </div>`).join("");
+}
+
+function renderMetrics(frame) {
+  const m = frame.metrics, c = frame.control, s = frame.state;
+  const set = (id, txt) => (document.getElementById(id).textContent = txt);
+  set("m-k", Number(m.k_rate_s).toExponential(3) + " s⁻¹");
+  set("m-conv", (m.conversion * 100).toFixed(2) + " %");
+  set("m-half", fmtTime(m.half_life_s));
+  set("m-log", m.log_reduction.toFixed(2) + " log");
+  set("m-f", s.lethality_F_s.toFixed(1) + " s");
+  set("m-jacket", c.jacket_C.toFixed(1) + " °C");
+  set("m-time", fmtTime(frame.t_process_s));
+  document.getElementById("batch-id").textContent = frame.batch_id;
+  document.getElementById("process-label").textContent = frame.process_label;
+}
+
+function fmtTime(s) {
+  if (!isFinite(s)) return "∞";
+  if (s < 90) return s.toFixed(1) + " s";
+  if (s < 5400) return (s / 60).toFixed(1) + " min";
+  return (s / 3600).toFixed(2) + " h";
+}
+
+function applyFrame(frame, redraw = true) {
+  if (!frame || !frame.readings) return;
+  const t = Math.round(frame.t_process_s);
+  pushPoint(charts.conc, t, [frame.readings.concentration_A, frame.readings.concentration_B]);
+  pushPoint(charts.temp, t, [frame.readings.temperature_C, frame.control.jacket_C]);
+  pushPoint(charts.ph, t, [frame.readings.pH]);
+  pushPoint(charts.press, t, [frame.readings.pressure_kPa]);
+  if (redraw) Object.values(charts).forEach(c => c.update("none"));
+  renderReadouts(frame);
+  renderAlarms(frame);
+  renderMetrics(frame);
+}
+
+/* ---------------------------- WebSocket --------------------------------- */
+
+let socket = null, retry = 0;
+
+function setLink(state, text) {
+  document.getElementById("link-dot").className = state;
+  document.getElementById("link-text").textContent = text;
+}
+
+function connect() {
+  socket = new WebSocket(WS_URL);
+
+  socket.onopen = () => { retry = 0; setLink("on", "Telemetría en vivo"); };
+
+  socket.onmessage = ev => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "history") {
+      clearCharts();
+      msg.payload.forEach(f => applyFrame(f, false));
+      Object.values(charts).forEach(c => c.update("none"));
+    } else {
+      applyFrame(msg.payload);
+    }
+  };
+
+  socket.onclose = () => {
+    setLink("off", "Sin conexión, reintentando");
+    retry = Math.min(retry + 1, 6);
+    setTimeout(connect, 500 * 2 ** retry);   // backoff exponencial
+  };
+
+  socket.onerror = () => socket.close();
+}
+
+/* ---------------------------- Controles --------------------------------- */
+
+let sendTimer = null;
+function sendSetpoints(body) {
+  clearTimeout(sendTimer);                   // anti-rebote: 1 POST por pausa
+  sendTimer = setTimeout(() => {
+    fetch(API + "/api/setpoints", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).catch(() => setLink("off", "El servidor no responde"));
+  }, 180);
+}
+
+function bindSlider(id, labelId, format, field, transform = v => v) {
+  const el = document.getElementById(id);
+  el.addEventListener("input", () => {
+    const v = parseFloat(el.value);
+    document.getElementById(labelId).textContent = format(v);
+    sendSetpoints({ [field]: transform(v) });
+  });
+}
+
+bindSlider("sp-temp", "sp-temp-val", v => v.toFixed(1) + " °C", "temperature_C");
+bindSlider("sp-ph", "sp-ph-val", v => v.toFixed(2), "pH0");
+bindSlider("sp-ca", "sp-ca-val", v => v.toFixed(3) + " mol/L", "CA0");
+bindSlider("sp-speed", "sp-speed-val", v => v + "×", "speed");
+
+const post = (path, body) =>
+  fetch(API + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {})
+  }).then(r => r.json());
+
+document.getElementById("btn-start").onclick = () => post("/api/control/start");
+document.getElementById("btn-stop").onclick = () => post("/api/control/stop");
+document.getElementById("btn-reset").onclick = () => {
+  const proc = document.getElementById("proc").value;
+  post("/api/control/reset", { process: proc }).then(() => { clearCharts(); loadProfile(); });
+};
+document.getElementById("proc").onchange = () =>
+  document.getElementById("btn-reset").focus();
+
+/* ---------------------------- Arranque ---------------------------------- */
+
+async function loadProfile() {
+  const p = await (await fetch(API + "/api/profile")).json();
+  limits = p.limits;
+  const sel = document.getElementById("proc");
+  sel.innerHTML = p.available
+    .map(o => `<option value="${o.key}" ${o.key === p.active ? "selected" : ""}>${o.label}</option>`)
+    .join("");
+  // Alinear los sliders con las condiciones reales del perfil cargado.
+  const set = (id, lab, val, fmt) => {
+    document.getElementById(id).value = val;
+    document.getElementById(lab).textContent = fmt(val);
+  };
+  set("sp-temp", "sp-temp-val", p.initial.T0_C ? p.lethality.T_ref_C : 72, v => v.toFixed(1) + " °C");
+  set("sp-ph", "sp-ph-val", p.initial.pH0, v => v.toFixed(2));
+  set("sp-ca", "sp-ca-val", p.initial.CA0, v => v.toFixed(3) + " mol/L");
+}
+
+loadProfile().then(connect).catch(() => {
+  setLink("off", "Backend no disponible en " + API);
+  connect();
+});
+</script>
+</body>
+</html>
