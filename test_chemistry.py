@@ -21,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 import chemistry as chem                      # noqa: E402
 from alerts import AlertEngine, CRITICAL, OK  # noqa: E402
 from config import (                          # noqa: E402
+    CONCENTRACION,
+    FERMENTACION,
     PASTEURIZACION,
     KineticParams,
     R_GAS,
@@ -223,3 +225,118 @@ def test_histeresis_evita_parpadeo():
     for v in (70.9, 71.05, 70.95, 71.02):
         eng.evaluate({"temperature_C": v, "pH": 6.7, "pressure_kPa": 150.0}, 1.0)
     assert len(eng.deviation_log) == 1
+
+
+# --- 8. Brix, propiedades coligativas y viscosidad --------------------------
+
+
+def test_brix_basico():
+    assert chem.brix_from_masses(10.0, 90.0) == pytest.approx(10.0)
+    assert chem.brix_from_masses(0.0, 100.0) == pytest.approx(0.0)
+
+
+def test_molalidad_definicion():
+    """m = mol soluto / kg disolvente, no de solución."""
+    m = chem.molality(solids_kg=0.03423, water_kg=1.0, M_solute=342.3)
+    assert m == pytest.approx(0.1, rel=1e-6)   # 34.23 g / 342.3 g/mol = 0.1 mol
+
+
+def test_antoine_inversion_consistente():
+    """La inversión de Antoine debe ser el inverso exacto de la función directa."""
+    for P in (15.0, 50.0, 101.325):
+        t_c = chem.antoine_boiling_point_C(P)
+        p_back = chem.water_vapor_pressure_kPa(c_to_k(t_c))
+        assert p_back == pytest.approx(P, rel=1e-3)
+
+
+def test_agua_hierve_a_100C_a_presion_atmosferica():
+    assert chem.antoine_boiling_point_C(101.325) == pytest.approx(100.0, abs=0.5)
+
+
+def test_vacio_baja_el_punto_de_ebullicion():
+    """A menor presión, menor temperatura de ebullición (por eso se usa vacío)."""
+    t_vacio = chem.antoine_boiling_point_C(15.0)
+    t_atm = chem.antoine_boiling_point_C(101.325)
+    assert t_vacio < t_atm
+    assert 45.0 < t_vacio < 65.0        # ~54 °C esperado a 15 kPa
+
+
+def test_elevacion_ebulloscopica_proporcional_a_molalidad():
+    """ΔTb = Kb · m: al doblar la molalidad, se dobla la elevación."""
+    dTb1 = chem.boiling_point_elevation_C(1.0, 0.512)
+    dTb2 = chem.boiling_point_elevation_C(2.0, 0.512)
+    assert dTb1 == pytest.approx(0.512)
+    assert dTb2 == pytest.approx(2 * dTb1)
+
+
+def test_actividad_de_agua_baja_al_concentrar():
+    """Ley de Raoult: más soluto, menor fracción molar de agua, menor a_w."""
+    aw_diluido = chem.water_activity_raoult(10.0, 90.0, 342.3)
+    aw_concentrado = chem.water_activity_raoult(65.0, 35.0, 342.3)
+    assert aw_diluido > aw_concentrado
+    assert 0.0 <= aw_concentrado <= 1.0
+
+
+def test_actividad_de_agua_es_uno_sin_soluto():
+    assert chem.water_activity_raoult(0.0, 100.0, 342.3) == pytest.approx(1.0)
+
+
+def test_viscosidad_baja_al_calentar():
+    """
+    Ecuación de Andrade: SIGNO OPUESTO a Arrhenius. Una reacción se acelera
+    al calentar; un líquido fluye MEJOR (η baja) al calentar.
+    """
+    v_frio = chem.viscosity_cP(c_to_k(5.0), 10.0, 6.7, PASTEURIZACION)
+    v_caliente = chem.viscosity_cP(c_to_k(70.0), 10.0, 6.7, PASTEURIZACION)
+    assert v_caliente < v_frio
+
+
+def test_viscosidad_sube_con_el_brix():
+    T = c_to_k(54.0)
+    v_diluido = chem.viscosity_cP(T, 12.0, 3.7, CONCENTRACION)
+    v_concentrado = chem.viscosity_cP(T, 65.0, 3.7, CONCENTRACION)
+    assert v_concentrado > v_diluido
+
+
+def test_yogur_gelifica_al_bajar_el_pH():
+    """
+    La viscosidad del yogur debe dispararse al cruzar el pH isoeléctrico de
+    la caseína (~4.65), independientemente del Brix (que casi no cambia).
+    """
+    T = c_to_k(43.0)
+    brix = chem.brix_from_masses(FERMENTACION.solids_mass_kg, FERMENTACION.water_mass0_kg)
+    v_inicio = chem.viscosity_cP(T, brix, 6.6, FERMENTACION)
+    v_final = chem.viscosity_cP(T, brix, 4.2, FERMENTACION)
+    assert v_final > 50 * v_inicio      # salto de al menos 50x, no un cambio gradual
+
+
+def test_proceso_concentracion_alcanza_65_brix():
+    """
+    Integrando el evaporador al vacío el tiempo suficiente, el jugo debe
+    concentrarse desde ~11.8 °Bx hasta el objetivo comercial de 65 °Bx, con
+    la actividad de agua bajando y la viscosidad subiendo de forma monótona.
+    """
+    p = CONCENTRACION
+    y = chem.initial_state(p)
+    brix_prev, aw_prev = 0.0, 1.0
+    reached = False
+    for _ in range(220):                    # 220 × 60 s ≈ 3.7 h de proceso
+        y = chem.step(y, 60.0, p, p.T_setpoint_C)
+        m = chem.derived_metrics(y, p)
+        assert m["brix"] >= brix_prev - 1e-6     # el Brix nunca puede bajar
+        assert m["water_activity"] <= aw_prev + 1e-6  # a_w nunca puede subir
+        brix_prev, aw_prev = m["brix"], m["water_activity"]
+        if m["brix"] >= 65.0:
+            reached = True
+            break
+    assert reached, f"No llegó a 65 °Bx; se quedó en {brix_prev:.1f} °Bx"
+    assert 0.85 < aw_prev < 0.95
+
+
+def test_agua_evaporada_es_fisicamente_posible():
+    """El agua restante nunca debe ser negativa ni superar la inicial."""
+    p = CONCENTRACION
+    y = chem.initial_state(p)
+    for _ in range(200):
+        y = chem.step(y, 60.0, p, p.T_setpoint_C)
+        assert 0.0 <= y[chem.IDX_W] <= p.water_mass0_kg

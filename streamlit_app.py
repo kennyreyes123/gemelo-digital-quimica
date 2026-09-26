@@ -184,7 +184,7 @@ def live_panel() -> None:
                 "Vida media t½ [s]": m["half_life_s"],
                 "Letalidad F acumulada [s]": s["lethality_F_s"],
                 "Recuento microbiano [UFC/mL]": s["microbial_count"],
-                "T camisa [°C]": snap["control"]["jacket_C"],
+                "T medio de calentamiento [°C]": snap["control"]["jacket_C"],
             }
         )
 

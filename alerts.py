@@ -76,6 +76,20 @@ CORRECTIVE_ACTIONS: Dict[str, Dict[str, str]] = {
         "high": "Aliviar por la válvula de seguridad y revisar obstrucción en la "
                 "línea de salida antes de continuar.",
     },
+    "brix": {
+        "low": "El concentrado no alcanzó el °Brix objetivo: extender el tiempo "
+               "de evaporación. Un producto bajo en sólidos tiene actividad de "
+               "agua demasiado alta para ser estable sin refrigeración.",
+        "high": "Detener la evaporación de inmediato: sobre 70 °Bx hay riesgo de "
+                "cristalización de azúcares en el tanque y en la tubería.",
+    },
+    "viscosity_cP": {
+        "low": "Verificar el viscosímetro en línea; una lectura anormalmente "
+               "baja puede indicar dilución accidental o falla del sensor.",
+        "high": "Detener la concentración: el producto está en riesgo de dejar "
+                "de ser bombeable. Diluir con jugo de menor Brix si es posible "
+                "para recuperar la fluidez antes de continuar el trasiego.",
+    },
 }
 
 

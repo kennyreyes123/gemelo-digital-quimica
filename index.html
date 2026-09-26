@@ -164,7 +164,11 @@ td:last-child{text-align:right;font-family:"IBM Plex Mono",monospace}
       <div class="body">
         <div class="ctrl">
           <label for="proc"><span>Proceso simulado</span></label>
-          <select id="proc"></select>
+          <select id="proc">
+            <option value="pasteurizacion">Pasteurización HTST de leche entera</option>
+            <option value="fermentacion">Fermentación láctica de yogur</option>
+            <option value="concentracion">Concentración de jugo de naranja al vacío</option>
+          </select>
         </div>
         <div class="btn-row">
           <button id="btn-start">Iniciar</button>
@@ -184,6 +188,8 @@ td:last-child{text-align:right;font-family:"IBM Plex Mono",monospace}
           <tr><td>Reducción logarítmica</td><td id="m-log">—</td></tr>
           <tr><td>Letalidad F acumulada</td><td id="m-f">—</td></tr>
           <tr><td>Temperatura de camisa</td><td id="m-jacket">—</td></tr>
+          <tr><td>Actividad de agua (a_w)</td><td id="m-aw">—</td></tr>
+          <tr><td>Elevación ebulloscópica</td><td id="m-dtb">—</td></tr>
           <tr><td>Tiempo de proceso</td><td id="m-time">—</td></tr>
         </table>
       </div>
@@ -198,6 +204,7 @@ td:last-child{text-align:right;font-family:"IBM Plex Mono",monospace}
       <div class="card"><h2>Temperatura vs tiempo</h2><div class="chart-box"><canvas id="ch-temp"></canvas></div></div>
       <div class="card"><h2>pH vs tiempo</h2><div class="chart-box"><canvas id="ch-ph"></canvas></div></div>
       <div class="card"><h2>Presión vs tiempo</h2><div class="chart-box"><canvas id="ch-press"></canvas></div></div>
+      <div class="card"><h2>°Brix y viscosidad vs tiempo</h2><div class="chart-box"><canvas id="ch-brix"></canvas></div></div>
     </div>
   </section>
 </main>
@@ -210,7 +217,19 @@ td:last-child{text-align:right;font-family:"IBM Plex Mono",monospace}
    - Envía cambios de consigna por POST /api/setpoints (con anti-rebote).
 =========================================================================== */
 
-const API = location.origin.startsWith("http") ? location.origin : "http://localhost:8000";
+// ---------------------------------------------------------------------------
+// URL del backend. Netlify sólo sirve este archivo estático: el backend
+// (FastAPI + WebSocket) vive en otro servicio, así que hay que apuntar aquí
+// explícitamente a esa URL una vez desplegada en Render.
+//
+// Mientras desarrollas en tu computador, deja BACKEND_URL en "" para que use
+// automáticamente localhost:8000. El día que despliegues en Render, reemplaza
+// la cadena vacía por tu URL real, por ejemplo:
+//     const BACKEND_URL = "https://gemelo-digital-quimica.onrender.com";
+// ---------------------------------------------------------------------------
+const BACKEND_URL = "https://gemelo-digital-quimica.onrender.com";
+
+const API = BACKEND_URL || "http://localhost:8000";
 const WS_URL = API.replace(/^http/, "ws") + "/ws/telemetry";
 const MAX_POINTS = 240;
 const CSS = getComputedStyle(document.documentElement);
@@ -273,7 +292,14 @@ const charts = {
     { label: "T camisa", color: color("--trace-3"), dash: [5, 4] }
   ], "°C"),
   ph: makeChart("ch-ph", [{ label: "pH", color: color("--trace-4") }], "pH"),
-  press: makeChart("ch-press", [{ label: "Presión", color: color("--trace-1") }], "kPa")
+  press: makeChart("ch-press", [{ label: "Presión", color: color("--trace-1") }], "kPa"),
+  brix: makeChart("ch-brix", [
+    { label: "°Brix", color: color("--trace-3") },
+    { label: "Viscosidad", color: color("--trace-4"), axis: "y1" }
+  ], "°Bx", { extraScales: {
+      y1: { position: "right", title: { display: true, text: "cP", font: { size: 11 } },
+            grid: { display: false }, ticks: { font: { size: 10 } } }
+    } })
 };
 
 function pushPoint(chart, label, values) {
@@ -299,7 +325,9 @@ const READOUTS = [
   { key: "temperature_C", name: "Temperatura", unit: "°C", digits: 2 },
   { key: "pH", name: "pH", unit: "", digits: 3 },
   { key: "pressure_kPa", name: "Presión", unit: "kPa", digits: 1 },
-  { key: "concentration_A", name: "[A] reactivo", unit: "mol/L", digits: 4 }
+  { key: "concentration_A", name: "[A] reactivo", unit: "mol/L", digits: 4 },
+  { key: "brix", name: "°Brix", unit: "°Bx", digits: 2 },
+  { key: "viscosity_cP", name: "Viscosidad", unit: "cP", digits: 1 }
 ];
 
 function levelFor(key, value) {
@@ -349,6 +377,8 @@ function renderMetrics(frame) {
   set("m-log", m.log_reduction.toFixed(2) + " log");
   set("m-f", s.lethality_F_s.toFixed(1) + " s");
   set("m-jacket", c.jacket_C.toFixed(1) + " °C");
+  set("m-aw", m.water_activity.toFixed(4));
+  set("m-dtb", "+" + m.boiling_point_elevation_C.toFixed(3) + " °C");
   set("m-time", fmtTime(frame.t_process_s));
   document.getElementById("batch-id").textContent = frame.batch_id;
   document.getElementById("process-label").textContent = frame.process_label;
@@ -368,6 +398,7 @@ function applyFrame(frame, redraw = true) {
   pushPoint(charts.temp, t, [frame.readings.temperature_C, frame.control.jacket_C]);
   pushPoint(charts.ph, t, [frame.readings.pH]);
   pushPoint(charts.press, t, [frame.readings.pressure_kPa]);
+  pushPoint(charts.brix, t, [frame.readings.brix, frame.readings.viscosity_cP]);
   if (redraw) Object.values(charts).forEach(c => c.update("none"));
   renderReadouts(frame);
   renderAlarms(frame);
@@ -457,6 +488,10 @@ document.getElementById("proc").onchange = () =>
 async function loadProfile() {
   const p = await (await fetch(API + "/api/profile")).json();
   limits = p.limits;
+  // Si el backend respondió, se reescriben las opciones con la marca de
+  // "seleccionada" correcta. Si esta función lanza un error antes de llegar
+  // aquí (backend caído), las opciones fijas del HTML se quedan tal cual:
+  // el desplegable nunca se ve vacío.
   const sel = document.getElementById("proc");
   sel.innerHTML = p.available
     .map(o => `<option value="${o.key}" ${o.key === p.active ? "selected" : ""}>${o.label}</option>`)

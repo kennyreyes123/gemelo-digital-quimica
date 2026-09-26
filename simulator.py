@@ -72,8 +72,21 @@ class SensorArray:
             sigma = self.sigma.get(name, 0.0)
             noise = float(self.rng.normal(0.0, sigma)) if sigma > 0 else 0.0
             drift = self._drift(name, t_process_s) if self.drift_enabled else 0.0
-            out[name] = value + noise + drift
+            reading = value + noise + drift
+            if name in self.NEVER_NEGATIVE:
+                # El ruido gaussiano es simétrico, pero ninguna de estas
+                # cantidades físicas puede ser negativa (no existe una
+                # concentración, un Brix o una viscosidad "bajo cero"). Sin
+                # este piso, un valor real cercano a 0 (p.ej. viscosidad de
+                # 1.6 cP) mostraría lecturas negativas absurdas con cierta
+                # frecuencia, en vez de simplemente acercarse a 0.
+                reading = max(reading, 0.0)
+            out[name] = reading
         return out
+
+    NEVER_NEGATIVE = {
+        "concentration_A", "concentration_B", "pressure_kPa", "brix", "viscosity_cP",
+    }
 
     def _drift(self, name: str, t_s: float) -> float:
         """
@@ -245,14 +258,16 @@ class DigitalTwin:
             self.tick_count += 1
 
             p = self.profile
-            ph_true, press_true = chem.derived_metrics(self.y, p)
+            metrics_now = chem.derived_metrics(self.y, p)
 
             truth = {
                 "temperature_C": k_to_c(self.y[chem.IDX_T]),
-                "pH": ph_true,
-                "pressure_kPa": press_true,
+                "pH": metrics_now["pH"],
+                "pressure_kPa": metrics_now["pressure_kPa"],
                 "concentration_A": self.y[chem.IDX_CA],
                 "concentration_B": self.y[chem.IDX_CB],
+                "brix": metrics_now["brix"],
+                "viscosity_cP": metrics_now["viscosity_cP"],
             }
 
             # 2) Emular sensores IoT (ruido gaussiano + deriva)
@@ -273,7 +288,7 @@ class DigitalTwin:
             # 5) Métricas derivadas
             T_K = self.y[chem.IDX_T]
             k_now = chem.arrhenius(p.main_reaction.A_pre, p.main_reaction.Ea, T_K)
-            frame = self._build_frame(truth, readings, alerts, status, k_now)
+            frame = self._build_frame(truth, readings, alerts, status, k_now, metrics_now)
 
             self.history.append(frame)
             return frame
@@ -296,11 +311,11 @@ class DigitalTwin:
             self.ccp_armed = True
             self.phase = "PROCESO"
 
-    def _build_frame(self, truth, readings, alerts, status, k_now) -> dict:
+    def _build_frame(self, truth, readings, alerts, status, k_now, metrics_now) -> dict:
         """Construye la trama JSON descrita en docs/schema_telemetria.json."""
         p = self.profile
         return {
-            "schema_version": "1.1",
+            "schema_version": "1.2",
             "batch_id": self.batch_id,
             "process": p.kind,
             "process_label": p.label,
@@ -316,6 +331,7 @@ class DigitalTwin:
                 "temperature_K": round(self.y[chem.IDX_T], 3),
                 "microbial_count": float(f"{self.y[chem.IDX_N]:.4g}"),
                 "lethality_F_s": round(self.y[chem.IDX_F], 3),
+                "water_mass_kg": round(self.y[chem.IDX_W], 4),
             },
             "metrics": {
                 "k_rate_s": float(f"{k_now:.5g}"),
@@ -328,6 +344,10 @@ class DigitalTwin:
                 ),
                 "half_life_s": float(
                     f"{chem.half_life(p.main_reaction, p.CA0, self.y[chem.IDX_T]):.5g}"
+                ),
+                "water_activity": round(metrics_now["water_activity"], 4),
+                "boiling_point_elevation_C": round(
+                    metrics_now["boiling_point_elevation_C"], 3
                 ),
             },
             "control": {

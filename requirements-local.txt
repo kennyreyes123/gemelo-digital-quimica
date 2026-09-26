@@ -1,0 +1,14 @@
+# SOLO PARA DESARROLLO LOCAL en Python muy reciente (3.13, 3.14...).
+# Sin versiones fijas: dejamos que pip elija la más nueva que ya tenga un
+# instalador (wheel) compilado para tu Python, en vez de forzar una versión
+# vieja que te obligaría a compilar desde el código fuente.
+#
+# Para el despliegue en Render usa el otro archivo (requirements.txt), que sí
+# necesita versiones fijas y compatibles con Linux.
+
+numpy
+scipy
+fastapi
+uvicorn
+pydantic
+websockets

@@ -34,7 +34,13 @@ from pydantic import BaseModel, Field
 from config import PROFILES
 from simulator import twin
 
-FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+# Busca el frontend en dos ubicaciones posibles: la estructura de carpetas
+# original (backend/ + frontend/ separados) o una estructura "plana" donde
+# todos los archivos quedaron sueltos en el mismo directorio (por ejemplo,
+# tras subir el proyecto arrastrando archivos en vez de con git).
+_HERE = Path(__file__).resolve().parent
+_CANDIDATES = [_HERE.parent / "frontend", _HERE]
+FRONTEND_DIR = next((c for c in _CANDIDATES if (c / "index.html").exists()), _CANDIDATES[0])
 
 app = FastAPI(
     title="Gemelo Digital de Procesos Alimentarios",
